@@ -1,0 +1,20 @@
+cc = gcc
+flags = -fdiagnostics-color=always -g3
+includes = -I"./third_party/SDL/include"  -I"./third_party/glad/include"  -I"./third_party/cglm/include"
+libs = -L"./third_party/SDL/lib" -lSDL3
+cwd = C$:\Users\tram\Dev\gl_tetris
+builddir = C$:\Users\tram\Dev\gl_tetris\build
+target = $builddir/main.exe
+
+rule link
+  command = $cc $flags -o $out $in $libs
+
+rule compile
+  command = $cc $flags $includes -c $in -o $out
+
+build $builddir/hello.o: compile $cwd/src/hello.c
+build $builddir/glad.o: compile $cwd/third_party/glad/src/glad.c
+build $builddir/vec2.o: compile $cwd/third_party/cglm/src/vec2.c
+build $target: link $builddir/hello.o $builddir/glad.o $builddir/vec2.o
+
+default $target

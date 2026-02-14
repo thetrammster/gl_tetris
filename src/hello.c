@@ -1,0 +1,189 @@
+#define SDL_MAIN_HANDLED
+#include <SDL3/SDL.h>
+#include <glad/glad.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+/* ================= SHADERS ================= */
+
+static const char *vs_src =
+"#version 330 core\n"
+"layout (location = 0) in vec2 position;\n"
+"layout (location = 1) in vec2 inTexCoord;\n"
+"out vec2 texCoord;\n"
+"void main() {\n"
+"    texCoord = inTexCoord;\n"
+"    gl_Position = vec4(position, 0.0, 1.0);\n"
+"}\n";
+
+static const char *fs_src =
+"#version 330 core\n"
+"\n"
+"in vec2 vUV;\n"
+"out vec4 FragColor;\n"
+"\n"
+"uniform vec2  iResolution;\n"
+"uniform float iTime;\n"
+"\n"
+"void main() {\n"
+    "vec2 I = gl_FragCoord.xy;\n"
+    "vec4 O = vec4(0.0);\n"
+"\n"
+    "vec3 p, q, n;\n"
+    "float i = 0.0, t = 0.0, d;\n"
+    "float m = 1.0;\n"
+"\n"
+"\n"   
+    "vec3 r = normalize(vec3(I + I, 0.0) - iResolution.xyy);\n"
+"\n"
+    "// Camera rotation axis\n"
+    "vec3 a = normalize(tan(vec3(2.0, 1.0, 0.0) + iTime * 0.3));\n"
+    "// Rotate ray\n"
+    "r = a * dot(a, r) * 2.0 - r;\n"
+    "// Raymarch loop\n"
+    "for (; i++ < 200.0; ) {\n"
+        "p = q - t * r;\n"
+        "p.z += iTime * 5.0;\n"
+        "// Square tunnel distance field\n"
+        "d = 3.0 - max(abs(p.x), abs(p.y));\n"
+        "t += d;\n"
+        "if (d < 0.01) {\n"
+"            q = round(p);\n"
+"\n"
+"            // Tile hash\n"
+"            if (fract(dot(q, sin(q.zxy))) < 0.7) {\n"
+"\n"
+"                // Surface normal (approx)\n"
+"                n.xy = -p.xy / length(p.xy);\n"
+"                n.z  = 0.0;\n"
+"\n"
+"                // Reflect ray\n"
+"                r = reflect(r, n);\n"
+"\n"
+"                // Restart march\n"
+"                q = p;\n"
+"                q.z -= iTime * 5.0;\n"
+"                q.xy *= mat2(0.8, -0.6, 0.6, 0.8);\n"
+"\n"
+"                t = 0.1;\n"
+"                m *= 0.7;\n"
+"            }\n"
+"            else {\n"
+"                // Glow tile → exit\n"
+"                O.rgb = 0.5 * m * exp(sin(p.z * 0.1 + vec3(0.0, 1.0, 2.0)));\n"
+"                break;\n"
+"            }\n"
+"        }\n"
+"\n"
+"        // Escape\n"
+"        if (t > 50.0) break;\n"
+"    }\n"
+"\n"
+"    // Edge highlights\n"
+"    O.rgb += 0.1 * fwidth(p) / (t * (t + 1.0));\n"
+"\n"
+"    FragColor = O;\n"
+"}";
+
+/* ================= UTILS ================= */
+
+static GLuint compile(GLenum type, const char *src)
+{
+    GLuint s = glCreateShader(type);
+    glShaderSource(s, 1, &src, NULL);
+    glCompileShader(s);
+    
+    GLint ok;
+    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[2048];
+        glGetShaderInfoLog(s, sizeof log, NULL, log);
+        fprintf(stderr, "%s\n", log);
+        exit(1);
+    }
+    return s;
+}
+
+/* ================= MAIN ================= */
+
+int main(void)
+{
+    SDL_Init(SDL_INIT_VIDEO);
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+                        SDL_GL_CONTEXT_PROFILE_CORE);
+
+    SDL_Window *win = SDL_CreateWindow(
+        "gl_tetris",
+        800,600,
+        SDL_WINDOW_OPENGL
+    ); 
+    SDL_GLContext ctx = SDL_GL_CreateContext(win);
+    SDL_GL_MakeCurrent(win, ctx);
+    SDL_GL_SetSwapInterval(1);
+
+    gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
+
+    float quad[]={
+        -1,-1,0,0, -1,1,0,1, 1,-1,1,0,
+         1,-1,1,0, -1,1,0,1, 1,1,1,1
+    };
+
+    GLuint vao,vbo;
+    glGenVertexArrays(1,&vao);
+    glGenBuffers(1,&vbo);
+
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER,vbo);
+    glBufferData(GL_ARRAY_BUFFER,sizeof quad,quad,GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0,2,GL_FLOAT,0,4*sizeof(float),(void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1,2,GL_FLOAT,0,4*sizeof(float),(void*)(2*sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    GLuint prog=glCreateProgram();
+    glAttachShader(prog,compile(GL_VERTEX_SHADER,vs_src));
+    glAttachShader(prog,compile(GL_FRAGMENT_SHADER,fs_src));
+    glLinkProgram(prog);
+
+    glUseProgram(prog);
+
+    int run=1;
+    Uint64 start=SDL_GetTicks();
+     
+    while(run){
+        SDL_Event e;
+        while(SDL_PollEvent(&e)){
+            if(e.type==SDL_EVENT_QUIT) run=0;
+        }
+
+        int w,h;
+        SDL_GetWindowSize(win,&w,&h);
+        glViewport(0,0,w,h);
+
+        float t=(SDL_GetTicks()-start)/1000.0f;
+
+        float mx,my;
+        SDL_GetMouseState(&mx,&my);
+
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        glUseProgram(prog);
+        glUniform1f(glGetUniformLocation(prog,"iTime"),t);
+        glUniform2f(glGetUniformLocation(prog,"iResolution"),w,h);
+        glUniform2f(glGetUniformLocation(prog,"iMouse"),mx,h-my);
+
+        glBindVertexArray(vao);
+        glDrawArrays(GL_TRIANGLES,0,6);
+
+        SDL_GL_SwapWindow(win);
+    }
+
+    SDL_Quit();
+    return 0;
+}
+

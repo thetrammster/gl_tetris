@@ -1,0 +1,3 @@
+-I./third_party/glad/include
+-I./third_party/SDL/include
+-I./third_party/cglm/include
